@@ -249,9 +249,49 @@ def criar_branch_commit_push(caminho_projeto):
         print("❌ Esse repositório não possui remote origin configurado.")
         return
 
-    if not atualizar_main(caminho_projeto):
-        return
+    tem_alteracoes = repo_tem_alteracoes(caminho_projeto)
+    branch_atual = obter_branch_atual(caminho_projeto)
 
+    # 🔥 NOVA LÓGICA INTELIGENTE
+    if tem_alteracoes:
+        print("\n⚠️ Existem alterações não commitadas.")
+        print(f"Branch atual: {branch_atual}")
+        print("\nComo deseja criar a nova branch?")
+        print("1 - A partir da branch atual (levar alterações) ✅")
+        print("2 - A partir da main (stash automático)")
+        print("3 - Cancelar")
+
+        escolha = input("Escolha: ").strip()
+
+        if escolha == "1":
+            base = "atual"
+
+        elif escolha == "2":
+            base = "main"
+
+            # stash automático
+            ok, _ = executar_comando(
+                ["git", "stash"],
+                caminho_projeto,
+                "Salvar alterações (stash)"
+            )
+            if not ok:
+                return
+
+            if not atualizar_main(caminho_projeto):
+                return
+
+        else:
+            print("❌ Operação cancelada.")
+            return
+
+    else:
+        # fluxo normal (sem alterações)
+        base = "main"
+        if not atualizar_main(caminho_projeto):
+            return
+
+    # escolher tipo
     tipo_branch, tipo_commit = escolher_tipo_branch()
 
     escopo = input_obrigatorio(f"Nome/escopo da branch {tipo_branch}: ")
@@ -260,6 +300,7 @@ def criar_branch_commit_push(caminho_projeto):
     escopo_normalizado = normalizar_nome(escopo)
     nome_branch = f"{tipo_branch}/{escopo_normalizado}"
 
+    # verificar existência
     if branch_existe_local(caminho_projeto, nome_branch):
         print(f"❌ A branch local '{nome_branch}' já existe.")
         return
@@ -268,18 +309,30 @@ def criar_branch_commit_push(caminho_projeto):
         print(f"❌ A branch remota '{nome_branch}' já existe.")
         return
 
-    etapas = [
-        (["git", "checkout", "-b", nome_branch], f"Criar branch {nome_branch}"),
-    ]
+    # criar branch
+    ok, _ = executar_comando(
+        ["git", "checkout", "-b", nome_branch],
+        caminho_projeto,
+        f"Criar branch {nome_branch}"
+    )
+    if not ok:
+        return
 
-    for cmd, etapa in etapas:
-        ok, _ = executar_comando(cmd, caminho_projeto, etapa)
+    # se veio da main com stash, recuperar alterações
+    if tem_alteracoes and base == "main":
+        ok, _ = executar_comando(
+            ["git", "stash", "pop"],
+            caminho_projeto,
+            "Recuperar alterações (stash pop)"
+        )
         if not ok:
+            print("⚠️ Pode ter ocorrido conflito ao aplicar stash.")
             return
 
+    # commit (se tiver alterações)
     if not repo_tem_alteracoes(caminho_projeto):
         print("⚠️ Nenhuma alteração encontrada para commit.")
-        print("✅ Branch criada com sucesso, mas sem commit.")
+        print("✅ Branch criada com sucesso.")
         return
 
     etapas = [
@@ -294,9 +347,8 @@ def criar_branch_commit_push(caminho_projeto):
             print(f"\n⚠️ Fluxo interrompido na etapa: {etapa}")
             return
 
-    print(f"\n🎉 Fluxo da branch '{nome_branch}' concluído com sucesso.")
-    print("💡 Próximo passo: abrir um PR para a main.")
-
+    print(f"\n🎉 Branch '{nome_branch}' criada e enviada com sucesso.")
+    print("💡 Próximo passo: abrir PR.")
 
 def commitar_branch_atual(caminho_projeto):
     if not repo_tem_git(caminho_projeto):
